@@ -1,49 +1,93 @@
-﻿using System.Drawing;
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Numerics;
+using System.Windows.Forms;
 using ExileCore2;
+using ExileCore2.PoEMemory;
+using ExileCore2.PoEMemory.Components;
+using ExileCore2.PoEMemory.Elements;
+using ExileCore2.PoEMemory.Elements.InventoryElements;
 using ExileCore2.PoEMemory.MemoryObjects;
-using Vector2 = System.Numerics.Vector2;
+using ExileCore2.Shared;
+using ExileCore2.Shared.Enums;
+using LowerPrice.Utils;
+using ImGuiNET;
 
 namespace LowerPrice;
 
-public class LowerPrice : BaseSettingsPlugin<LowerPriceSettings>
+public class LowerPrice : BaseSettingsPlugin<Settings>
 {
+    private readonly List<(NormalInventoryItem item, float oldPrice, float newPrice, Vector2 position)> _itemsToUpdate = new();
+
     public override bool Initialise()
     {
-        //Perform one-time initialization here
-
-        //Maybe load you custom config (only do so if builtin settings are inadequate for the job)
-        //var configPath = Path.Join(ConfigDirectory, "custom_config.txt");
-        //if (File.Exists(configPath))
-        //{
-        //    var data = File.ReadAllText(configPath);
-        //}
-
         return true;
-    }
-
-    public override void AreaChange(AreaInstance area)
-    {
-        //Perform once-per-zone processing here
-        //For example, Radar builds the zone map texture here
-    }
-
-    public override void Tick()
-    {
-        //Perform non-render-related work here, e.g. position calculation.
-        //var a = Math.Sqrt(7);
     }
 
     public override void Render()
     {
-        //Any Imgui or Graphics calls go here. This is called after Tick
-        Graphics.DrawText($"Plugin {GetType().Name} is working.", new Vector2(100, 100), Color.Red);
+        if (!Settings.Enable) return;
+
+        var shopTab = GameController.IngameState.IngameUi.Children.ElementAtOrDefault(35);
+        if (shopTab != null && shopTab.IsVisible)
+        {
+            DebugWindow.LogMsg("Shop tab is open.");
+            if (Input.IsKeyDown(Settings.DiscountHotkey.Value))
+            {
+                ProcessItems(shopTab);
+            }
+        }
+        else
+        {
+            DebugWindow.LogMsg("Shop tab is not open.");
+        }
     }
 
-    public override void EntityAdded(Entity entity)
+    private void ProcessItems(Element shopTab)
     {
-        //If you have a reason to process every entity only once,
-        //this is a good place to do so.
-        //You may want to use a queue and run the actual
-        //processing (if any) inside the Tick method.
+        _itemsToUpdate.Clear();
+        var stash = GameController.IngameState.IngameUi.StashElement.VisibleStash;
+        if (stash == null) return;
+
+        foreach (var item in stash.VisibleInventoryItems)
+        {
+            var mods = item.Item?.GetComponent<Mods>();
+            var price = mods?.ItemMods.FirstOrDefault(m => m.Name.Contains("Price"))?.Values.FirstOrDefault() ?? 0f;
+            if (price > 0)
+            {
+                var newPrice = (float)Math.Floor(price * Settings.PriceRatio.Value);
+                var position = item.GetClientRectCache.Center;
+                _itemsToUpdate.Add((item, price, newPrice, position));
+            }
+        }
+
+        if (_itemsToUpdate.Any())
+        {
+            UpdateItemPrices();
+        }
+    }
+
+    private async void UpdateItemPrices()
+    {
+        foreach (var (item, oldPrice, newPrice, position) in _itemsToUpdate)
+        {
+            if (!GameController.IngameState.IngameUi.Children.ElementAtOrDefault(35).IsVisible)
+            {
+                DebugWindow.LogMsg("Shop tab closed, aborting price update.");
+                break;
+            }
+
+            Mouse.moveMouse(position + GameController.Window.GetWindowRectangleTimeCache.TopLeft);
+            await TaskUtils.NextFrame();
+            Mouse.LeftDown(); 
+            await TaskUtils.NextFrame();
+            Mouse.LeftUp();   
+            await TaskUtils.NextFrame();
+            Keyboard.Type($"{newPrice}");
+            await TaskUtils.NextFrame();
+            Keyboard.KeyPress(Keys.Enter);
+            await TaskUtils.NextFrame();
+        }
     }
 }

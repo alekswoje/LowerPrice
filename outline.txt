@@ -1,0 +1,8 @@
+check if ange manage shop is open
+if not do nothing.
+if open listen for hotkey (f6)
+if hotkey pressed gather all items in the currently selected tab and their prices and location and store that data
+create new prices for each item based off the setting for price ratio (0.0-1.0 in settings if its 0.9 for exaple it will multiply the old price by 0.9 and round down to get the new price) 
+iterate over the list to right click on each item and type in the new lower price.
+
+the tab is InGameState.IngameUi.Children[35]
