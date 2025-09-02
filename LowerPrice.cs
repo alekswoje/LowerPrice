@@ -108,6 +108,14 @@ namespace LowerPrice
                                             string priceStr = priceText.Replace("x", "").Trim();
                                             if (int.TryParse(priceStr, out int oldPrice))
                                             {
+                                                string orbType = priceChild1.Children[2].Text;
+                                                bool reprice = false;
+                                                if (orbType == "Chaos Orb" && Settings.RepriceChaos) reprice = true;
+                                                else if (orbType == "Divine Orb" && Settings.RepriceDivine) reprice = true;
+                                                else if (orbType == "Exalted Orb" && Settings.RepriceExalted) reprice = true;
+
+                                                if (!reprice) continue;
+
                                                 float newPrice = (float)Math.Floor(oldPrice * Settings.PriceRatio.Value);
                                                 if (oldPrice == 1 || newPrice <= 1)
                                                 {
@@ -142,7 +150,6 @@ namespace LowerPrice
                                                 Keyboard.KeyPress(Keys.Enter);
                                                 await TaskUtils.NextFrame();
                                                 await Task.Delay(Settings.ActionDelay + random.Next(Settings.RandomDelay));
-                                                DebugWindow.LogMsg($"lowered item from {oldPrice} to {newPrice}");
                                             }
                                         }
                                     }
