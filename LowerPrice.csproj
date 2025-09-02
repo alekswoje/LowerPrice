@@ -29,4 +29,10 @@
   <ItemGroup>
     <PackageReference Include="ImGui.NET" Version="1.90.0.1" />
   </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="images\*.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
 </Project>
