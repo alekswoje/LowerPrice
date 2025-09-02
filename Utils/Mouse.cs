@@ -35,7 +35,6 @@ internal class Mouse
     [DllImport("user32.dll")]
     private static extern void mouse_event(int dwFlags, int dx, int dy, int cButtons, int dwExtraInfo);
 
-
     public static void moveMouse(Vector2 pos)
     {
         SetCursorPos((int)pos.X, (int)pos.Y);
@@ -49,5 +48,15 @@ internal class Mouse
     public static void LeftUp()
     {
         mouse_event((int)MouseEvents.LeftUp, 0, 0, 0, 0);
+    }
+
+    public static void RightDown()
+    {
+        mouse_event((int)MouseEvents.RightDown, 0, 0, 0, 0);
+    }
+
+    public static void RightUp()
+    {
+        mouse_event((int)MouseEvents.RightUp, 0, 0, 0, 0);
     }
 }

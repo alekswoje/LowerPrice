@@ -1,7 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
+using System.IO;
 using System.Linq;
 using System.Numerics;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using ExileCore2;
 using ExileCore2.PoEMemory;
@@ -14,80 +17,156 @@ using ExileCore2.Shared.Enums;
 using LowerPrice.Utils;
 using ImGuiNET;
 
-namespace LowerPrice;
-
-public class LowerPrice : BaseSettingsPlugin<Settings>
+namespace LowerPrice
 {
-    private readonly List<(NormalInventoryItem item, float oldPrice, float newPrice, Vector2 position)> _itemsToUpdate = new();
-
-    public override bool Initialise()
+    public class LowerPrice : BaseSettingsPlugin<Settings>
     {
-        return true;
-    }
+        private readonly ConcurrentDictionary<RectangleF, bool?> _mouseStateForRect = new();
+        private readonly Random random = new Random();
 
-    public override void Render()
-    {
-        if (!Settings.Enable) return;
+        private bool MoveCancellationRequested => Settings.CancelWithRightClick && (Control.MouseButtons & MouseButtons.Right) != 0;
 
-        var shopTab = GameController.IngameState.IngameUi.Children.ElementAtOrDefault(35);
-        if (shopTab != null && shopTab.IsVisible)
+        public override bool Initialise()
         {
-            DebugWindow.LogMsg("Shop tab is open.");
-            if (Input.IsKeyDown(Settings.DiscountHotkey.Value))
-            {
-                ProcessItems(shopTab);
-            }
+            Graphics.InitImage(Path.Combine(DirectoryFullName, "images\\pick.png").Replace('\\', '/'), false);
+            return true;
         }
-        else
-        {
-            DebugWindow.LogMsg("Shop tab is not open.");
-        }
-    }
 
-    private void ProcessItems(Element shopTab)
-    {
-        _itemsToUpdate.Clear();
-        var stash = GameController.IngameState.IngameUi.StashElement.VisibleStash;
-        if (stash == null) return;
-
-        foreach (var item in stash.VisibleInventoryItems)
+        public override void Render()
         {
-            var mods = item.Item?.GetComponent<Mods>();
-            var price = mods?.ItemMods.FirstOrDefault(m => m.Name.Contains("Price"))?.Values.FirstOrDefault() ?? 0f;
-            if (price > 0)
+            if (!Settings.Enable) return;
+
+            var merchantPanel = GameController.IngameState.IngameUi.OfflineMerchantPanel;
+            if (merchantPanel != null && merchantPanel.IsVisible)
             {
-                var newPrice = (float)Math.Floor(price * Settings.PriceRatio.Value);
-                var position = item.GetClientRectCache.Center;
-                _itemsToUpdate.Add((item, price, newPrice, position));
+                const float buttonSize = 37;
+                var offset = new Vector2(10, 10);
+                var buttonPos = GameController.Window.GetWindowRectangleTimeCache.TopLeft + offset;
+                var buttonRect = new RectangleF(buttonPos.X, buttonPos.Y, buttonSize, buttonSize);
+                Graphics.DrawImage("pick.png", buttonRect);
+
+                if (IsButtonPressed(buttonRect))
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        Mouse.LeftUp();
+                        await Task.Delay(50);
+                        UpdateAllItemPrices(merchantPanel);
+                    });
+                }
             }
         }
 
-        if (_itemsToUpdate.Any())
+        private async void UpdateAllItemPrices(Element merchantPanel)
         {
-            UpdateItemPrices();
-        }
-    }
+            var inventory = GameController.IngameState.IngameUi.OfflineMerchantPanel.AllInventories[0];
+            if (inventory == null || !inventory.VisibleInventoryItems.Any()) return;
 
-    private async void UpdateItemPrices()
-    {
-        foreach (var (item, oldPrice, newPrice, position) in _itemsToUpdate)
-        {
-            if (!GameController.IngameState.IngameUi.Children.ElementAtOrDefault(35).IsVisible)
+            foreach (var item in inventory.VisibleInventoryItems)
             {
-                DebugWindow.LogMsg("Shop tab closed, aborting price update.");
-                break;
+                if (!GameController.IngameState.IngameUi.OfflineMerchantPanel.IsVisible || MoveCancellationRequested)
+                {
+                    break;
+                }
+
+                if (item.Children.Count == 2)
+                {
+                    await TaskUtils.NextFrame();
+                    await Task.Delay(Settings.ActionDelay + random.Next(Settings.RandomDelay));
+                    continue;
+                }
+
+                var position = item.GetClientRectCache.Center + GameController.Window.GetWindowRectangleTimeCache.TopLeft;
+
+                Mouse.moveMouse(position);
+                await TaskUtils.NextFrame();
+                await Task.Delay(Settings.ActionDelay + random.Next(Settings.RandomDelay));
+
+                var tooltip = item.Tooltip;
+                if (tooltip != null)
+                {
+                    var tooltipChild0 = tooltip.Children[0];
+                    if (tooltipChild0 != null)
+                    {
+                        var tooltipChild1 = tooltipChild0.Children[1];
+                        if (tooltipChild1 != null)
+                        {
+                            var lastChild = tooltipChild1.Children.Last();
+                            if (lastChild != null)
+                            {
+                                var priceChild1 = lastChild.Children[1];
+                                if (priceChild1 != null)
+                                {
+                                    var priceChild0 = priceChild1.Children[0];
+                                    if (priceChild0 != null)
+                                    {
+                                        string priceText = priceChild0.Text;
+                                        if (priceText != null && priceText.EndsWith("x"))
+                                        {
+                                            string priceStr = priceText.Replace("x", "").Trim();
+                                            if (int.TryParse(priceStr, out int oldPrice))
+                                            {
+                                                float newPrice = (float)Math.Floor(oldPrice * Settings.PriceRatio.Value);
+                                                if (oldPrice == 1 || newPrice <= 1)
+                                                {
+                                                    if (Settings.PickupItemsAtOne)
+                                                    {
+                                                        Keyboard.KeyDown(Keys.LControlKey);
+                                                        await TaskUtils.NextFrame();
+                                                        await Task.Delay(Settings.ActionDelay + random.Next(Settings.RandomDelay));
+                                                        Mouse.LeftDown();
+                                                        await TaskUtils.NextFrame();
+                                                        await Task.Delay(Settings.ActionDelay + random.Next(Settings.RandomDelay));
+                                                        Mouse.LeftUp();
+                                                        await TaskUtils.NextFrame();
+                                                        await Task.Delay(Settings.ActionDelay + random.Next(Settings.RandomDelay));
+                                                        Keyboard.KeyUp(Keys.LControlKey);
+                                                        await TaskUtils.NextFrame();
+                                                        await Task.Delay(Settings.ActionDelay + random.Next(Settings.RandomDelay));
+                                                    }
+                                                    continue;
+                                                }
+
+                                                if (newPrice < 1) newPrice = 1;
+                                                Mouse.RightDown();
+                                                await TaskUtils.NextFrame();
+                                                await Task.Delay(Settings.ActionDelay + random.Next(Settings.RandomDelay));
+                                                Mouse.RightUp();
+                                                await TaskUtils.NextFrame();
+                                                await Task.Delay(Settings.ActionDelay + random.Next(Settings.RandomDelay));
+                                                Keyboard.Type($"{newPrice}");
+                                                await TaskUtils.NextFrame();
+                                                await Task.Delay(Settings.ActionDelay + random.Next(Settings.RandomDelay));
+                                                Keyboard.KeyPress(Keys.Enter);
+                                                await TaskUtils.NextFrame();
+                                                await Task.Delay(Settings.ActionDelay + random.Next(Settings.RandomDelay));
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                await TaskUtils.NextFrame();
+                await Task.Delay(Settings.ActionDelay + random.Next(Settings.RandomDelay));
+            }
+        }
+
+        private bool IsButtonPressed(RectangleF buttonRect)
+        {
+            var prevState = _mouseStateForRect.GetValueOrDefault(buttonRect);
+            var isHovered = buttonRect.Contains(Mouse.GetCursorPosition() - GameController.Window.GetWindowRectangleTimeCache.TopLeft);
+            if (!isHovered)
+            {
+                _mouseStateForRect[buttonRect] = null;
+                return false;
             }
 
-            Mouse.moveMouse(position + GameController.Window.GetWindowRectangleTimeCache.TopLeft);
-            await TaskUtils.NextFrame();
-            Mouse.LeftDown(); 
-            await TaskUtils.NextFrame();
-            Mouse.LeftUp();   
-            await TaskUtils.NextFrame();
-            Keyboard.Type($"{newPrice}");
-            await TaskUtils.NextFrame();
-            Keyboard.KeyPress(Keys.Enter);
-            await TaskUtils.NextFrame();
+            var isPressed = Control.MouseButtons == MouseButtons.Left;
+            _mouseStateForRect[buttonRect] = isPressed;
+            return isPressed && prevState == false;
         }
     }
 }
