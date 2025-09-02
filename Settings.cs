@@ -12,7 +12,7 @@ namespace LowerPrice
         public RangeNode<float> PriceRatio { get; set; } = new(0.9f, 0.0f, 1.0f);
 
         [Menu("Action Delay (ms", "Delay between actions to simulate human behavior")]
-        public RangeNode<int> ActionDelay { get; set; } = new(75, 50, 1000);
+        public RangeNode<int> ActionDelay { get; set; } = new(75, 50, 200);
 
         [Menu("Random Delay (ms)", "Random delay added to action delay (0-100ms)")]
         public RangeNode<int> RandomDelay { get; set; } = new(25, 0, 100);
