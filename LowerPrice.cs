@@ -49,8 +49,10 @@ namespace LowerPrice
                 {
                     _ = Task.Run(async () =>
                     {
-                        Mouse.LeftUp();
-                        await Task.Delay(50);
+                        while (Control.MouseButtons == MouseButtons.Left)
+                        {
+                            await Task.Delay(10);
+                        }
                         UpdateAllItemPrices(merchantPanel);
                     });
                 }
@@ -140,6 +142,7 @@ namespace LowerPrice
                                                 Keyboard.KeyPress(Keys.Enter);
                                                 await TaskUtils.NextFrame();
                                                 await Task.Delay(Settings.ActionDelay + random.Next(Settings.RandomDelay));
+                                                DebugWindow.LogMsg($"lowered item from {oldPrice} to {newPrice}");
                                             }
                                         }
                                     }
