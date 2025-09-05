@@ -78,7 +78,8 @@ namespace LowerPrice
                     continue;
                 }
 
-                var position = item.GetClientRectCache.Center + GameController.Window.GetWindowRectangleTimeCache.TopLeft;
+                var itemOffset = new Vector2(5, 5);
+                var position = item.GetClientRectCache.TopLeft + itemOffset + GameController.Window.GetWindowRectangleTimeCache.TopLeft;
 
                 Mouse.moveMouse(position);
                 await TaskUtils.NextFrame();
