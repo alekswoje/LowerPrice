@@ -86,19 +86,19 @@ namespace LowerPrice
                 await Task.Delay(Settings.ActionDelay + random.Next(Settings.RandomDelay));
 
                 var tooltip = item.Tooltip;
-                if (tooltip != null)
+                if (tooltip != null && tooltip.Children.Count > 0)
                 {
                     var tooltipChild0 = tooltip.Children[0];
-                    if (tooltipChild0 != null)
+                    if (tooltipChild0 != null && tooltipChild0.Children.Count > 1)
                     {
                         var tooltipChild1 = tooltipChild0.Children[1];
-                        if (tooltipChild1 != null)
+                        if (tooltipChild1 != null && tooltipChild1.Children.Any())
                         {
                             var lastChild = tooltipChild1.Children.Last();
-                            if (lastChild != null)
+                            if (lastChild != null && lastChild.Children.Count > 1)
                             {
                                 var priceChild1 = lastChild.Children[1];
-                                if (priceChild1 != null)
+                                if (priceChild1 != null && priceChild1.Children.Count > 0)
                                 {
                                     var priceChild0 = priceChild1.Children[0];
                                     if (priceChild0 != null)
@@ -109,7 +109,7 @@ namespace LowerPrice
                                             string priceStr = priceText.Replace("x", "").Trim();
                                             if (int.TryParse(priceStr, out int oldPrice))
                                             {
-                                                string orbType = priceChild1.Children[2].Text;
+                                                string orbType = priceChild1.Children.Count > 2 ? priceChild1.Children[2].Text : null;
                                                 bool reprice = false;
                                                 if (orbType == "Chaos Orb" && Settings.RepriceChaos) reprice = true;
                                                 else if (orbType == "Divine Orb" && Settings.RepriceDivine) reprice = true;
