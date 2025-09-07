@@ -118,7 +118,7 @@ namespace LowerPrice
                                                 if (!reprice) continue;
 
                                                 float newPrice = (float)Math.Floor(oldPrice * Settings.PriceRatio.Value);
-                                                if (oldPrice == 1 || newPrice <= 1)
+                                                if (oldPrice == 1)
                                                 {
                                                     if (Settings.PickupItemsAtOne)
                                                     {
