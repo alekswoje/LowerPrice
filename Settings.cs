@@ -11,6 +11,12 @@ public class Settings : ISettings
     [Menu("Price Ratio", "Multiplier for item prices (0.0–1.0)")]
     public RangeNode<float> PriceRatio { get; set; } = new(0.9f, 0.0f, 1.0f);
 
+    [Menu("Use Flat Reduction", "Use flat number reduction instead of percentage")]
+    public ToggleNode UseFlatReduction { get; set; } = new(false);
+
+    [Menu("Flat Reduction Amount", "Amount to subtract from item prices")]
+    public RangeNode<int> FlatReductionAmount { get; set; } = new(1, 1, 100);
+
     [Menu("Action Delay (ms)", "Delay between actions to simulate human behavior")]
     public RangeNode<int> ActionDelay { get; set; } = new(75, 50, 1000);
 

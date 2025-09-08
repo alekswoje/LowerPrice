@@ -117,7 +117,16 @@ namespace LowerPrice
 
                                                 if (!reprice) continue;
 
-                                                float newPrice = (float)Math.Floor(oldPrice * Settings.PriceRatio.Value);
+                                                float newPrice;
+                                                if (Settings.UseFlatReduction)
+                                                {
+                                                    newPrice = oldPrice - Settings.FlatReductionAmount.Value;
+                                                }
+                                                else
+                                                {
+                                                    newPrice = (float)Math.Floor(oldPrice * Settings.PriceRatio.Value);
+                                                }
+                                                
                                                 if (oldPrice == 1)
                                                 {
                                                     if (Settings.PickupItemsAtOne)
