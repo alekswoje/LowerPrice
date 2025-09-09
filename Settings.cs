@@ -37,4 +37,16 @@ public class Settings : ISettings
 
     [Menu("Cancel With Right Mouse Button", "Cancel operation on manual right-click")]
     public ToggleNode CancelWithRightClick { get; set; } = new(true);
+
+    [Menu("Enable Timer")]
+    public ToggleNode EnableTimer { get; set; } = new(false);
+
+    [Menu("Timer Duration (minutes)", "How long to wait before playing sound notification")]
+    public RangeNode<int> TimerDurationMinutes { get; set; } = new(60, 1, 300);
+
+    [Menu("Show Timer Countdown", "Display countdown timer on screen")]
+    public ToggleNode ShowTimerCountdown { get; set; } = new(true);
+
+    [Menu("Enable Sound Notification", "Play sound when timer expires")]
+    public ToggleNode EnableSoundNotification { get; set; } = new(true);
 }

@@ -16,6 +16,7 @@ using ExileCore2.Shared;
 using ExileCore2.Shared.Enums;
 using LowerPrice.Utils;
 using ImGuiNET;
+using NAudio.Wave;
 
 namespace LowerPrice
 {
@@ -23,6 +24,9 @@ namespace LowerPrice
     {
         private readonly ConcurrentDictionary<RectangleF, bool?> _mouseStateForRect = new();
         private readonly Random random = new Random();
+        private DateTime _lastRepriceTime = DateTime.MinValue;
+        private bool _timerExpired = false;
+        private WaveOutEvent _waveOut;
 
         private bool MoveCancellationRequested => Settings.CancelWithRightClick && (Control.MouseButtons & MouseButtons.Right) != 0;
 
@@ -35,6 +39,12 @@ namespace LowerPrice
         public override void Render()
         {
             if (!Settings.Enable) return;
+
+            // Render timer display
+            if (Settings.EnableTimer && Settings.ShowTimerCountdown)
+            {
+                RenderTimerDisplay();
+            }
 
             var merchantPanel = GameController.IngameState.IngameUi.OfflineMerchantPanel;
             if (merchantPanel != null && merchantPanel.IsVisible)
@@ -160,6 +170,13 @@ namespace LowerPrice
                                                 Keyboard.KeyPress(Keys.Enter);
                                                 await TaskUtils.NextFrame();
                                                 await Task.Delay(Settings.ActionDelay + random.Next(Settings.RandomDelay));
+                                                
+                                                // Update last reprice time and reset timer
+                                                if (Settings.EnableTimer)
+                                                {
+                                                    _lastRepriceTime = DateTime.Now;
+                                                    _timerExpired = false;
+                                                }
                                             }
                                         }
                                     }
@@ -187,6 +204,94 @@ namespace LowerPrice
             var isPressed = Control.MouseButtons == MouseButtons.Left;
             _mouseStateForRect[buttonRect] = isPressed;
             return isPressed && prevState == false;
+        }
+
+        private void RenderTimerDisplay()
+        {
+            if (_lastRepriceTime == DateTime.MinValue)
+            {
+                // No reprice yet, show ready status with ImGui formatting
+                var pos = new Vector2(10, 60); // Below the main button
+                ImGui.SetNextWindowPos(new System.Numerics.Vector2(pos.X, pos.Y));
+                ImGui.Begin("TimerStatus", ImGuiWindowFlags.NoBackground | ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoInputs);
+                ImGui.PushStyleColor(ImGuiCol.Text, new System.Numerics.Vector4(0.0f, 1.0f, 0.0f, 1.0f)); // Green color
+                ImGui.Text("Timer: READY");
+                ImGui.PopStyleColor();
+                ImGui.End();
+                return;
+            }
+
+            var timeSinceLastReprice = DateTime.Now - _lastRepriceTime;
+            var timerDuration = TimeSpan.FromMinutes(Settings.TimerDurationMinutes.Value);
+            var timeRemaining = timerDuration - timeSinceLastReprice;
+
+            if (timeRemaining <= TimeSpan.Zero)
+            {
+                // Timer expired
+                if (!_timerExpired)
+                {
+                    _timerExpired = true;
+                    if (Settings.EnableSoundNotification)
+                    {
+                        PlaySoundNotification();
+                    }
+                }
+                
+                var pos = new Vector2(10, 60);
+                Graphics.DrawText("Timer: EXPIRED - Ready to reprice!", pos);
+            }
+            else
+            {
+                // Timer still running
+                var pos = new Vector2(10, 60);
+                var timeText = $"Timer: {timeRemaining:mm\\:ss} remaining";
+                Graphics.DrawText(timeText, pos);
+            }
+        }
+
+        private void PlaySoundNotification()
+        {
+            try
+            {
+                var soundPath = Path.Combine(DirectoryFullName, "sounds", "ping.mp3");
+                if (File.Exists(soundPath))
+                {
+                    _ = Task.Run(() =>
+                    {
+                        try
+                        {
+                            using (var audioFile = new AudioFileReader(soundPath))
+                            using (var waveOut = new WaveOutEvent())
+                            {
+                                waveOut.Init(audioFile);
+                                waveOut.Play();
+                                while (waveOut.PlaybackState == PlaybackState.Playing)
+                                {
+                                    System.Threading.Thread.Sleep(100);
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            LogError($"Failed to play sound: {ex.Message}");
+                        }
+                    });
+                }
+                else
+                {
+                    LogError($"Sound file not found: {soundPath}");
+                }
+            }
+            catch (Exception ex)
+            {
+                LogError($"Error playing sound notification: {ex.Message}");
+            }
+        }
+
+        public override void Dispose()
+        {
+            _waveOut?.Dispose();
+            base.Dispose();
         }
     }
 }
