@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
+using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Numerics;
@@ -17,6 +18,9 @@ using ExileCore2.Shared.Enums;
 using LowerPrice.Utils;
 using ImGuiNET;
 using NAudio.Wave;
+using System.Net.Http;
+using System.Text.Json;
+using RectangleF = ExileCore2.Shared.RectangleF;
 
 namespace LowerPrice
 {
@@ -27,23 +31,60 @@ namespace LowerPrice
         private DateTime _lastRepriceTime = DateTime.MinValue;
         private bool _timerExpired = false;
         private WaveOutEvent _waveOut;
+        private bool _manualRepriceTriggered = false;
+        
+        // Value display fields
+        private readonly HttpClient _httpClient = new HttpClient();
+        private DateTime _lastCurrencyUpdate = DateTime.MinValue;
+        private Dictionary<string, decimal> _currencyRates = new Dictionary<string, decimal>();
+        private readonly object _currencyRatesLock = new object();
 
         private bool MoveCancellationRequested => Settings.CancelWithRightClick && (Control.MouseButtons & MouseButtons.Right) != 0;
+
+        private void CheckHotkeys()
+        {
+            // Check manual reprice hotkey
+            if (Settings.ManualRepriceHotkey.PressedOnce())
+            {
+                _manualRepriceTriggered = true;
+            }
+        }
 
         public override bool Initialise()
         {
             Graphics.InitImage(Path.Combine(DirectoryFullName, "images\\pick.png").Replace('\\', '/'), false);
+            
+            // Initialize currency rates with default values
+            InitializeDefaultCurrencyRates();
+            
+            // Load currency rates from API/local file
+            _ = Task.Run(async () => await UpdateCurrencyRates());
+            
             return true;
         }
 
         public override void Render()
         {
+            // Check hotkeys first
+            CheckHotkeys();
+
             if (!Settings.Enable) return;
 
             // Render timer display
             if (Settings.EnableTimer && Settings.ShowTimerCountdown)
             {
                 RenderTimerDisplay();
+            }
+
+            // Render value display
+            if (Settings.ShowValueDisplay)
+            {
+                RenderValueDisplay();
+            }
+            else
+            {
+                // Debug: Show when value display is disabled
+                Graphics.DrawText("Value Display: DISABLED in settings", new Vector2(10, 50));
             }
 
             var merchantPanel = GameController.IngameState.IngameUi.OfflineMerchantPanel;
@@ -55,8 +96,10 @@ namespace LowerPrice
                 var buttonRect = new RectangleF(buttonPos.X, buttonPos.Y, buttonSize, buttonSize);
                 Graphics.DrawImage("pick.png", buttonRect);
 
-                if (IsButtonPressed(buttonRect))
+                // Check for button press or manual trigger
+                if (IsButtonPressed(buttonRect) || _manualRepriceTriggered)
                 {
+                    _manualRepriceTriggered = false; // Reset manual trigger
                     _ = Task.Run(async () =>
                     {
                         while (Control.MouseButtons == MouseButtons.Left)
@@ -124,18 +167,11 @@ namespace LowerPrice
                                                 if (orbType == "Chaos Orb" && Settings.RepriceChaos) reprice = true;
                                                 else if (orbType == "Divine Orb" && Settings.RepriceDivine) reprice = true;
                                                 else if (orbType == "Exalted Orb" && Settings.RepriceExalted) reprice = true;
+                                                else if (orbType == "Orb of Annulment" && Settings.RepriceAnnul) reprice = true;
 
                                                 if (!reprice) continue;
 
-                                                float newPrice;
-                                                if (Settings.UseFlatReduction)
-                                                {
-                                                    newPrice = oldPrice - Settings.FlatReductionAmount.Value;
-                                                }
-                                                else
-                                                {
-                                                    newPrice = (float)Math.Floor(oldPrice * Settings.PriceRatio.Value);
-                                                }
+                                                float newPrice = CalculateNewPrice(oldPrice, orbType);
                                                 
                                                 if (oldPrice == 1)
                                                 {
@@ -188,6 +224,50 @@ namespace LowerPrice
 
                 await TaskUtils.NextFrame();
                 await Task.Delay(Settings.ActionDelay + random.Next(Settings.RandomDelay));
+            }
+        }
+
+        private float CalculateNewPrice(int oldPrice, string orbType)
+        {
+            bool useFlatReduction = false;
+
+            // Check for currency-specific overrides first
+            switch (orbType)
+            {
+                case "Divine Orb":
+                    // Divine Override: if checked, force flat reduction; if unchecked, use global setting
+                    useFlatReduction = Settings.DivineUseFlat ? true : Settings.UseFlatReduction;
+                    LogMessage($"Divine: DivineUseFlat={Settings.DivineUseFlat}, UseFlatReduction={Settings.UseFlatReduction}, Result={useFlatReduction}");
+                    break;
+                case "Chaos Orb":
+                    // Chaos Override: if checked, force flat reduction; if unchecked, use global setting
+                    useFlatReduction = Settings.ChaosUseRatio ? true : Settings.UseFlatReduction;
+                    LogMessage($"Chaos: ChaosUseRatio={Settings.ChaosUseRatio}, UseFlatReduction={Settings.UseFlatReduction}, Result={useFlatReduction}");
+                    break;
+                case "Exalted Orb":
+                    // Exalted Override: if checked, force flat reduction; if unchecked, use global setting
+                    useFlatReduction = Settings.ExaltedUseRatio ? true : Settings.UseFlatReduction;
+                    LogMessage($"Exalted: ExaltedUseRatio={Settings.ExaltedUseRatio}, UseFlatReduction={Settings.UseFlatReduction}, Result={useFlatReduction}");
+                    break;
+                case "Orb of Annulment":
+                    // Annul Override: if checked, force flat reduction; if unchecked, use global setting
+                    useFlatReduction = Settings.AnnulUseFlat ? true : Settings.UseFlatReduction;
+                    LogMessage($"Annul: AnnulUseFlat={Settings.AnnulUseFlat}, UseFlatReduction={Settings.UseFlatReduction}, Result={useFlatReduction}");
+                    break;
+                default:
+                    // Use global setting for unknown currencies
+                    useFlatReduction = Settings.UseFlatReduction;
+                    LogMessage($"Default: UseFlatReduction={Settings.UseFlatReduction}, Result={useFlatReduction}");
+                    break;
+            }
+
+            if (useFlatReduction)
+            {
+                return oldPrice - Settings.FlatReductionAmount.Value;
+            }
+            else
+            {
+                return (float)Math.Floor(oldPrice * Settings.PriceRatio.Value);
             }
         }
 
@@ -288,10 +368,473 @@ namespace LowerPrice
             }
         }
 
+        private void InitializeDefaultCurrencyRates()
+        {
+            lock (_currencyRatesLock)
+            {
+                // Initialize with -1 to indicate rates need to be loaded from API
+                // These will be updated when UpdateCurrencyRates() is called
+                _currencyRates["chaos_to_divine"] = -1m;
+                _currencyRates["chaos_to_exalted"] = -1m;
+                _currencyRates["divine_to_chaos"] = -1m;
+                _currencyRates["divine_to_exalted"] = -1m;
+                _currencyRates["exalted_to_chaos"] = -1m;
+                _currencyRates["exalted_to_divine"] = -1m;
+                _currencyRates["annul_to_chaos"] = -1m;
+                _currencyRates["annul_to_divine"] = -1m;
+                _currencyRates["annul_to_exalted"] = -1m;
+            }
+        }
+
+        private async Task UpdateCurrencyRates()
+        {
+            if (!Settings.AutoUpdateRates) return;
+            
+            var timeSinceUpdate = DateTime.Now - _lastCurrencyUpdate;
+            if (timeSinceUpdate.TotalMinutes < Settings.CurrencyUpdateInterval.Value) return;
+
+            try
+            {
+                // Try API first, fallback to local file
+                JsonDocument jsonDoc;
+                try
+                {
+                    var response = await _httpClient.GetStringAsync("https://poe.ninja/poe2/api/economy/temp/overview?leagueName=Rise+of+the+Abyssal&overviewName=Currency");
+                    jsonDoc = JsonDocument.Parse(response);
+                    LogMessage("Loaded currency rates from API");
+                }
+                catch
+                {
+                    // Fallback to local poeninja.json file
+                    var localJson = await File.ReadAllTextAsync("poeninja.json");
+                    jsonDoc = JsonDocument.Parse(localJson);
+                    LogMessage("Loaded currency rates from local poeninja.json file");
+                }
+                
+                lock (_currencyRatesLock)
+                {
+                    foreach (var item in jsonDoc.RootElement.GetProperty("items").EnumerateArray())
+                    {
+                        var itemData = item.GetProperty("item");
+                        var rates = item.GetProperty("rate");
+                        
+                        string itemId = itemData.GetProperty("id").GetString();
+                        
+                        // Note: poeninja rates show "how many of this currency = 1 divine/chaos/exalted"
+                        // So we need to invert them to get "how many divine/chaos/exalted = 1 of this currency"
+                        
+                        if (rates.TryGetProperty("chaos", out var chaosRate) && chaosRate.GetDecimal() > 0)
+                        {
+                            _currencyRates[$"{itemId}_to_chaos"] = 1m / chaosRate.GetDecimal();
+                        }
+                        if (rates.TryGetProperty("divine", out var divineRate) && divineRate.GetDecimal() > 0)
+                        {
+                            _currencyRates[$"{itemId}_to_divine"] = 1m / divineRate.GetDecimal();
+                        }
+                        if (rates.TryGetProperty("exalted", out var exaltedRate) && exaltedRate.GetDecimal() > 0)
+                        {
+                            _currencyRates[$"{itemId}_to_exalted"] = 1m / exaltedRate.GetDecimal();
+                        }
+                    }
+                }
+                
+                _lastCurrencyUpdate = DateTime.Now;
+                LogMessage("Currency rates updated successfully");
+            }
+            catch (Exception ex)
+            {
+                LogError($"Failed to update currency rates: {ex.Message}");
+            }
+        }
+
+        private void RenderValueDisplay()
+        {
+            var merchantPanel = GameController.IngameState.IngameUi.OfflineMerchantPanel;
+            if (merchantPanel?.IsVisible != true) 
+            {
+                return;
+            }
+
+            // Update currency rates in background
+            _ = Task.Run(UpdateCurrencyRates);
+
+            var inventory = merchantPanel.AllInventories?.FirstOrDefault();
+            if (inventory?.VisibleInventoryItems == null) 
+            {
+                // Debug: Show when no inventory items
+                Graphics.DrawText("Value Display: No inventory items", new Vector2(10, 10));
+                return;
+            }
+
+            var itemValues = CalculateItemValues(inventory.VisibleInventoryItems);
+            
+            // Debug: Always show something, even if no items
+            var pos = new Vector2(Settings.ValueDisplayX.Value, Settings.ValueDisplayY.Value);
+            
+            // Create value display text
+            var totalItemsInTab = inventory?.VisibleInventoryItems?.Count() ?? 0;
+            var displayText = $"Items in tab: {itemValues.ItemsWithPricing}/{totalItemsInTab}\n";
+            displayText += $"Items for sale: {itemValues.TotalItems}\n";
+            
+            if (itemValues.ChaosTotal > 0)
+                displayText += $"Chaos: {itemValues.ChaosTotal:F0}\n";
+            if (itemValues.DivineTotal > 0)
+                displayText += $"Divines: {itemValues.DivineTotal:F1}\n";
+            if (itemValues.ExaltedTotal > 0)
+                displayText += $"Exalts: {itemValues.ExaltedTotal:F1}\n";
+            if (itemValues.AnnulTotal > 0)
+                displayText += $"Annuls: {itemValues.AnnulTotal:F0}\n";
+            
+            displayText += $"\nTotal in Divine: {itemValues.TotalInDivine:F1}\n";
+            displayText += $"Total in Exalts: {itemValues.TotalInExalted:F1}";
+            
+            // Warning if tooltip count doesn't match total items
+            if (inventory?.VisibleInventoryItems != null)
+            {
+                var itemsWithTooltips = inventory.VisibleInventoryItems.Where(i => i.Tooltip != null).Count();
+                var totalItems = inventory.VisibleInventoryItems.Count();
+                
+                if (itemsWithTooltips < totalItems)
+                {
+                    displayText += $"\n⚠️ Hover over items to load pricing data!";
+                }
+            }
+
+            // Draw black background
+            var textSize = Graphics.MeasureText(displayText);
+            var backgroundRect = new RectangleF(pos.X - 5, pos.Y - 5, textSize.X + 10, textSize.Y + 10);
+            Graphics.DrawBox(backgroundRect, Color.FromArgb(180, 0, 0, 0));
+
+            Graphics.DrawText(displayText, pos);
+        }
+
+        private ItemValueSummary CalculateItemValues(IEnumerable<Element> items)
+        {
+            var summary = new ItemValueSummary();
+            var totalItemsProcessed = 0;
+            var itemsWithTooltips = 0;
+            var itemsWithPricing = 0;
+            
+            try
+            {
+                foreach (var item in items)
+                {
+                    totalItemsProcessed++;
+                    
+                    try
+                    {
+                        // Check if item has tooltip (more important than children)
+                        var tooltip = item.Tooltip;
+                        if (tooltip == null) 
+                        {
+                            continue;
+                        }
+                        
+                        // Count any item with a tooltip, regardless of structure
+                        itemsWithTooltips++;
+                        
+                        if (tooltip.Children == null || tooltip.Children.Count == 0) 
+                        {
+                            continue;
+                        }
+                        
+                        // Try to find price information in the tooltip structure
+                        string priceText = null;
+                        string orbType = null;
+                        
+                        // First try the specific structure you described: Tooltip.Children[0].Children[1].Children[last].Children[1]
+                        if (tooltip.Children?.Count > 0)
+                        {
+                            var child0 = tooltip.Children[0];
+                            if (child0?.Children?.Count > 1)
+                            {
+                                var child1 = child0.Children[1];
+                                if (child1?.Children?.Count > 0)
+                                {
+                                    var lastChild = child1.Children.Last();
+                                    if (lastChild?.Children?.Count > 1)
+                                    {
+                                        var priceChild = lastChild.Children[1];
+                                        if (priceChild?.Children?.Count > 2)
+                                        {
+                                            priceText = priceChild.Children[0]?.Text; // "279x"
+                                            orbType = priceChild.Children[2]?.Text;   // "Exalted Orb"
+                                            
+                                            if (!string.IsNullOrEmpty(priceText) && !string.IsNullOrEmpty(orbType))
+                                            {
+                                                // Found price using specific structure
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // If specific structure didn't work, try the general search
+                        if (string.IsNullOrEmpty(priceText) || string.IsNullOrEmpty(orbType))
+                        {
+                            foreach (var tooltipChild in tooltip.Children)
+                            {
+                                if (tooltipChild != null && FindPriceInChildren(tooltipChild, out priceText, out orbType))
+                                {
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        // If we didn't find pricing in the main tooltip structure, try a more aggressive search
+                        if (string.IsNullOrEmpty(priceText) || string.IsNullOrEmpty(orbType))
+                        {
+                            // Try searching through all text in the tooltip recursively
+                            if (FindPriceInAllText(tooltip, out priceText, out orbType))
+                            {
+                                // Found pricing in text search
+                            }
+                            else
+                            {
+                                continue;
+                            }
+                        }
+                        
+                        if (!priceText.EndsWith("x"))
+                        {
+                            continue;
+                        }
+                        
+                        string priceStr = priceText.Replace("x", "").Trim();
+                        if (!int.TryParse(priceStr, out int price)) 
+                        {
+                            continue;
+                        }
+                        
+                        itemsWithPricing++;
+                        summary.TotalItems++;
+                
+                        lock (_currencyRatesLock)
+                        {
+                            switch (orbType)
+                            {
+                                case "Chaos Orb":
+                                    summary.ChaosTotal += price;
+                                    summary.TotalInDivine += price * GetRate("chaos_to_divine");
+                                    summary.TotalInExalted += price * GetRate("chaos_to_exalted");
+                                    break;
+                                case "Divine Orb":
+                                    summary.DivineTotal += price;
+                                    summary.TotalInDivine += price;
+                                    summary.TotalInExalted += price * GetRate("divine_to_exalted");
+                                    break;
+                                case "Exalted Orb":
+                                    summary.ExaltedTotal += price;
+                                    summary.TotalInDivine += price * GetRate("exalted_to_divine");
+                                    summary.TotalInExalted += price;
+                                    break;
+                                case "Orb of Annulment":
+                                    summary.AnnulTotal += price;
+                                    summary.TotalInDivine += price * GetRate("annul_to_divine");
+                                    summary.TotalInExalted += price * GetRate("annul_to_exalted");
+                                    break;
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        // Skip this item if any error occurs
+                        continue;
+                    }
+                }
+            }
+            catch
+            {
+                // If any major error occurs, return empty summary
+                return summary;
+            }
+            
+            // Set the processing stats
+            summary.TotalItemsProcessed = totalItemsProcessed;
+            summary.ItemsWithTooltips = itemsWithTooltips;
+            summary.ItemsWithPricing = itemsWithPricing;
+            
+            return summary;
+        }
+
+        private bool FindPriceInChildren(Element element, out string priceText, out string orbType)
+        {
+            return FindPriceInChildren(element, out priceText, out orbType, 0);
+        }
+
+        private bool FindPriceInAllText(Element element, out string priceText, out string orbType)
+        {
+            priceText = null;
+            orbType = null;
+            
+            if (element?.Text != null)
+            {
+                var text = element.Text.Trim();
+                
+                // Look for patterns like "5x" or "10x" followed by currency type
+                var priceMatch = System.Text.RegularExpressions.Regex.Match(text, @"(\d+)x\s*([A-Za-z\s]+)");
+                if (priceMatch.Success)
+                {
+                    priceText = priceMatch.Groups[1].Value + "x";
+                    orbType = priceMatch.Groups[2].Value.Trim();
+                    return true;
+                }
+                
+                // Look for patterns like "5 x" (with space)
+                priceMatch = System.Text.RegularExpressions.Regex.Match(text, @"(\d+)\s*x\s*([A-Za-z\s]+)");
+                if (priceMatch.Success)
+                {
+                    priceText = priceMatch.Groups[1].Value + "x";
+                    orbType = priceMatch.Groups[2].Value.Trim();
+                    return true;
+                }
+            }
+            
+            if (element?.Children != null)
+            {
+                foreach (var child in element.Children)
+                {
+                    if (FindPriceInAllText(child, out priceText, out orbType))
+                    {
+                        return true;
+                    }
+                }
+            }
+            
+            return false;
+        }
+
+        private string GetAllTextFromElement(Element element)
+        {
+            if (element?.Text != null)
+            {
+                return element.Text;
+            }
+            
+            if (element?.Children != null)
+            {
+                var allText = new System.Text.StringBuilder();
+                foreach (var child in element.Children)
+                {
+                    var childText = GetAllTextFromElement(child);
+                    if (!string.IsNullOrEmpty(childText))
+                    {
+                        if (allText.Length > 0) allText.Append(" ");
+                        allText.Append(childText);
+                    }
+                }
+                return allText.ToString();
+            }
+            
+            return string.Empty;
+        }
+
+        private bool FindPriceInChildren(Element element, out string priceText, out string orbType, int depth)
+        {
+            priceText = null;
+            orbType = null;
+            
+            // Prevent stack overflow by limiting recursion depth
+            if (depth > 10 || element?.Children == null) return false;
+            
+            try
+            {
+                foreach (var child in element.Children)
+                {
+                    if (child?.Text != null)
+                    {
+                        // Look for text that ends with 'x' (price indicator)
+                        if (child.Text.EndsWith("x"))
+                        {
+                            priceText = child.Text;
+                            
+                            // Look for currency type in sibling elements
+                            if (element.Children.Count > 1)
+                            {
+                                for (int i = 0; i < element.Children.Count; i++)
+                                {
+                                    var sibling = element.Children[i];
+                                    if (sibling?.Text != null && !sibling.Text.EndsWith("x") && 
+                                        (sibling.Text.Contains("Orb") || sibling.Text.Contains("Divine") || 
+                                         sibling.Text.Contains("Chaos") || sibling.Text.Contains("Exalted")))
+                                    {
+                                        orbType = sibling.Text;
+                                        return true;
+                                    }
+                                }
+                            }
+                            
+                            // If no sibling found, try parent's siblings (but limit depth)
+                            if (depth < 5 && element.Parent?.Children != null)
+                            {
+                                foreach (var parentSibling in element.Parent.Children)
+                                {
+                                    if (parentSibling?.Text != null && !parentSibling.Text.EndsWith("x") && 
+                                        (parentSibling.Text.Contains("Orb") || parentSibling.Text.Contains("Divine") || 
+                                         parentSibling.Text.Contains("Chaos") || parentSibling.Text.Contains("Exalted")))
+                                    {
+                                        orbType = parentSibling.Text;
+                                        return true;
+                                    }
+                                }
+                            }
+                            
+                            return true; // Found price text, even without currency type
+                        }
+                    }
+                    
+                    // Recursively search in children with increased depth
+                    if (FindPriceInChildren(child, out priceText, out orbType, depth + 1))
+                    {
+                        return true;
+                    }
+                }
+            }
+            catch
+            {
+                // If any exception occurs, just return false to prevent crashes
+                return false;
+            }
+            
+            return false;
+        }
+
+        private decimal GetRate(string rateKey)
+        {
+            lock (_currencyRatesLock)
+            {
+                if (_currencyRates.TryGetValue(rateKey, out var rate))
+                {
+                    if (rate == -1m)
+                    {
+                        return 0m;
+                    }
+                    return rate;
+                }
+                return 0m;
+            }
+        }
+
         public override void Dispose()
         {
             _waveOut?.Dispose();
+            _httpClient?.Dispose();
             base.Dispose();
         }
+    }
+
+    public class ItemValueSummary
+    {
+        public int TotalItems { get; set; }
+        public int TotalItemsProcessed { get; set; }
+        public int ItemsWithTooltips { get; set; }
+        public int ItemsWithPricing { get; set; }
+        public decimal ChaosTotal { get; set; }
+        public decimal DivineTotal { get; set; }
+        public decimal ExaltedTotal { get; set; }
+        public decimal AnnulTotal { get; set; }
+        public decimal TotalInDivine { get; set; }
+        public decimal TotalInExalted { get; set; }
     }
 }
