@@ -138,6 +138,14 @@ namespace LowerPrice
                 await TaskUtils.NextFrame();
                 await Task.Delay(Settings.ActionDelay + random.Next(Settings.RandomDelay));
 
+                // Check if item is locked before processing
+                if (IsItemLocked(item))
+                {
+                    await TaskUtils.NextFrame();
+                    await Task.Delay(Settings.ActionDelay + random.Next(Settings.RandomDelay));
+                    continue;
+                }
+
                 var tooltip = item.Tooltip;
                 if (tooltip != null && tooltip.Children.Count > 0)
                 {
@@ -284,6 +292,62 @@ namespace LowerPrice
             var isPressed = Control.MouseButtons == MouseButtons.Left;
             _mouseStateForRect[buttonRect] = isPressed;
             return isPressed && prevState == false;
+        }
+
+        private bool IsItemLocked(Element item)
+        {
+            try
+            {
+                // Check all children of the item for locked texture
+                if (item?.Children != null)
+                {
+                    foreach (var child in item.Children)
+                    {
+                        if (IsElementOrChildrenLocked(child))
+                        {
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            }
+            catch
+            {
+                // If any error occurs, assume not locked to avoid blocking legitimate items
+                return false;
+            }
+        }
+
+        private bool IsElementOrChildrenLocked(Element element)
+        {
+            try
+            {
+                // Check if this element has the locked texture
+                if (!string.IsNullOrEmpty(element.TextureName) && 
+                    element.TextureName.Contains("LockedItems.dds"))
+                {
+                    return true;
+                }
+
+                // Recursively check children
+                if (element?.Children != null)
+                {
+                    foreach (var child in element.Children)
+                    {
+                        if (IsElementOrChildrenLocked(child))
+                        {
+                            return true;
+                        }
+                    }
+                }
+
+                return false;
+            }
+            catch
+            {
+                // If any error occurs, assume not locked
+                return false;
+            }
         }
 
         private void RenderTimerDisplay()
@@ -523,6 +587,12 @@ namespace LowerPrice
                     
                     try
                     {
+                        // Check if item is locked before processing
+                        if (IsItemLocked(item))
+                        {
+                            continue;
+                        }
+
                         // Check if item has tooltip (more important than children)
                         var tooltip = item.Tooltip;
                         if (tooltip == null) 
