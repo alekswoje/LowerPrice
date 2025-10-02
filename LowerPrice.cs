@@ -114,112 +114,118 @@ namespace LowerPrice
 
         private async void UpdateAllItemPrices(Element merchantPanel)
         {
-            var inventory = GameController.IngameState.IngameUi.OfflineMerchantPanel.AllInventories[0];
-            if (inventory == null || !inventory.VisibleInventoryItems.Any()) return;
-
-            foreach (var item in inventory.VisibleInventoryItems)
+            try
             {
-                if (!GameController.IngameState.IngameUi.OfflineMerchantPanel.IsVisible || MoveCancellationRequested)
+                var inventory = GameController.IngameState.IngameUi.OfflineMerchantPanel.AllInventories[0];
+                if (inventory == null || !inventory.VisibleInventoryItems.Any()) return;
+
+                foreach (var item in inventory.VisibleInventoryItems)
                 {
-                    break;
-                }
-
-                if (item.Children.Count == 2)
-                {
-                    await TaskUtils.NextFrame();
-                    await Task.Delay(Settings.ActionDelay + random.Next(Settings.RandomDelay));
-                    continue;
-                }
-
-                var itemOffset = new Vector2(5, 5);
-                var position = item.GetClientRectCache.TopLeft + itemOffset + GameController.Window.GetWindowRectangleTimeCache.TopLeft;
-
-                Mouse.moveMouse(position);
-                await TaskUtils.NextFrame();
-                await Task.Delay(Settings.ActionDelay + random.Next(Settings.RandomDelay));
-
-                // Check if item is locked before processing
-                if (IsItemLocked(item))
-                {
-                    await TaskUtils.NextFrame();
-                    await Task.Delay(Settings.ActionDelay + random.Next(Settings.RandomDelay));
-                    continue;
-                }
-
-                var tooltip = item.Tooltip;
-                if (tooltip != null && tooltip.Children.Count > 0)
-                {
-                    var tooltipChild0 = tooltip.Children[0];
-                    if (tooltipChild0 != null && tooltipChild0.Children.Count > 1)
+                    try
                     {
-                        var tooltipChild1 = tooltipChild0.Children[1];
-                        if (tooltipChild1 != null && tooltipChild1.Children.Any())
+                        if (!GameController.IngameState.IngameUi.OfflineMerchantPanel.IsVisible || MoveCancellationRequested)
                         {
-                            var lastChild = tooltipChild1.Children.Last();
-                            if (lastChild != null && lastChild.Children.Count > 1)
+                            break;
+                        }
+
+                        if (item.Children.Count == 2)
+                        {
+                            await TaskUtils.NextFrame();
+                            await Task.Delay(Settings.ActionDelay + random.Next(Settings.RandomDelay));
+                            continue;
+                        }
+
+                        var itemOffset = new Vector2(5, 5);
+                        var position = item.GetClientRectCache.TopLeft + itemOffset + GameController.Window.GetWindowRectangleTimeCache.TopLeft;
+
+                        Mouse.moveMouse(position);
+                        await TaskUtils.NextFrame();
+                        await Task.Delay(Settings.ActionDelay + random.Next(Settings.RandomDelay));
+
+                        // Check if item is locked before processing
+                        if (IsItemLocked(item))
+                        {
+                            await TaskUtils.NextFrame();
+                            await Task.Delay(Settings.ActionDelay + random.Next(Settings.RandomDelay));
+                            continue;
+                        }
+
+                        var tooltip = item.Tooltip;
+                        if (tooltip != null && tooltip.Children.Count > 0)
+                        {
+                            var tooltipChild0 = tooltip.Children[0];
+                            if (tooltipChild0 != null && tooltipChild0.Children.Count > 1)
                             {
-                                var priceChild1 = lastChild.Children[1];
-                                if (priceChild1 != null && priceChild1.Children.Count > 0)
+                                var tooltipChild1 = tooltipChild0.Children[1];
+                                if (tooltipChild1 != null && tooltipChild1.Children.Any())
                                 {
-                                    var priceChild0 = priceChild1.Children[0];
-                                    if (priceChild0 != null)
+                                    var lastChild = tooltipChild1.Children.Last();
+                                    if (lastChild != null && lastChild.Children.Count > 1)
                                     {
-                                        string priceText = priceChild0.Text;
-                                        if (priceText != null && priceText.EndsWith("x"))
+                                        var priceChild1 = lastChild.Children[1];
+                                        if (priceChild1 != null && priceChild1.Children.Count > 0)
                                         {
-                                            string priceStr = priceText.Replace("x", "").Trim();
-                                            if (int.TryParse(priceStr, out int oldPrice))
+                                            var priceChild0 = priceChild1.Children[0];
+                                            if (priceChild0 != null)
                                             {
-                                                string orbType = priceChild1.Children.Count > 2 ? priceChild1.Children[2].Text : null;
-                                                bool reprice = false;
-                                                if (orbType == "Chaos Orb" && Settings.RepriceChaos) reprice = true;
-                                                else if (orbType == "Divine Orb" && Settings.RepriceDivine) reprice = true;
-                                                else if (orbType == "Exalted Orb" && Settings.RepriceExalted) reprice = true;
-                                                else if (orbType == "Orb of Annulment" && Settings.RepriceAnnul) reprice = true;
-
-                                                if (!reprice) continue;
-
-                                                float newPrice = CalculateNewPrice(oldPrice, orbType);
-                                                
-                                                if (oldPrice == 1)
+                                                string priceText = priceChild0.Text;
+                                                if (priceText != null && priceText.EndsWith("x"))
                                                 {
-                                                    if (Settings.PickupItemsAtOne)
+                                                    string priceStr = priceText.Replace("x", "").Trim();
+                                                    if (int.TryParse(priceStr, out int oldPrice))
                                                     {
-                                                        Keyboard.KeyDown(Keys.LControlKey);
-                                                        await TaskUtils.NextFrame();
-                                                        await Task.Delay(Settings.ActionDelay + random.Next(Settings.RandomDelay));
-                                                        Mouse.LeftDown();
-                                                        await TaskUtils.NextFrame();
-                                                        await Task.Delay(Settings.ActionDelay + random.Next(Settings.RandomDelay));
-                                                        Mouse.LeftUp();
-                                                        await TaskUtils.NextFrame();
-                                                        await Task.Delay(Settings.ActionDelay + random.Next(Settings.RandomDelay));
-                                                        Keyboard.KeyUp(Keys.LControlKey);
-                                                        await TaskUtils.NextFrame();
-                                                        await Task.Delay(Settings.ActionDelay + random.Next(Settings.RandomDelay));
-                                                    }
-                                                    continue;
-                                                }
+                                                        string orbType = priceChild1.Children.Count > 2 ? priceChild1.Children[2].Text : null;
+                                                        bool reprice = false;
+                                                        if (orbType == "Chaos Orb" && Settings.RepriceChaos) reprice = true;
+                                                        else if (orbType == "Divine Orb" && Settings.RepriceDivine) reprice = true;
+                                                        else if (orbType == "Exalted Orb" && Settings.RepriceExalted) reprice = true;
+                                                        else if (orbType == "Orb of Annulment" && Settings.RepriceAnnul) reprice = true;
 
-                                                if (newPrice < 1) newPrice = 1;
-                                                Mouse.RightDown();
-                                                await TaskUtils.NextFrame();
-                                                await Task.Delay(Settings.ActionDelay + random.Next(Settings.RandomDelay));
-                                                Mouse.RightUp();
-                                                await TaskUtils.NextFrame();
-                                                await Task.Delay(Settings.ActionDelay + random.Next(Settings.RandomDelay));
-                                                Keyboard.Type($"{newPrice}");
-                                                await TaskUtils.NextFrame();
-                                                await Task.Delay(Settings.ActionDelay + random.Next(Settings.RandomDelay));
-                                                Keyboard.KeyPress(Keys.Enter);
-                                                await TaskUtils.NextFrame();
-                                                await Task.Delay(Settings.ActionDelay + random.Next(Settings.RandomDelay));
-                                                
-                                                // Update last reprice time and reset timer
-                                                if (Settings.EnableTimer)
-                                                {
-                                                    _lastRepriceTime = DateTime.Now;
-                                                    _timerExpired = false;
+                                                        if (!reprice) continue;
+
+                                                        float newPrice = CalculateNewPrice(oldPrice, orbType);
+                                                        
+                                                        if (oldPrice == 1)
+                                                        {
+                                                            if (Settings.PickupItemsAtOne)
+                                                            {
+                                                                Keyboard.KeyDown(Keys.LControlKey);
+                                                                await TaskUtils.NextFrame();
+                                                                await Task.Delay(Settings.ActionDelay + random.Next(Settings.RandomDelay));
+                                                                Mouse.LeftDown();
+                                                                await TaskUtils.NextFrame();
+                                                                await Task.Delay(Settings.ActionDelay + random.Next(Settings.RandomDelay));
+                                                                Mouse.LeftUp();
+                                                                await TaskUtils.NextFrame();
+                                                                await Task.Delay(Settings.ActionDelay + random.Next(Settings.RandomDelay));
+                                                                Keyboard.KeyUp(Keys.LControlKey);
+                                                                await TaskUtils.NextFrame();
+                                                                await Task.Delay(Settings.ActionDelay + random.Next(Settings.RandomDelay));
+                                                            }
+                                                            continue;
+                                                        }
+
+                                                        if (newPrice < 1) newPrice = 1;
+                                                        Mouse.RightDown();
+                                                        await TaskUtils.NextFrame();
+                                                        await Task.Delay(Settings.ActionDelay + random.Next(Settings.RandomDelay));
+                                                        Mouse.RightUp();
+                                                        await TaskUtils.NextFrame();
+                                                        await Task.Delay(Settings.ActionDelay + random.Next(Settings.RandomDelay));
+                                                        Keyboard.Type($"{newPrice}");
+                                                        await TaskUtils.NextFrame();
+                                                        await Task.Delay(Settings.ActionDelay + random.Next(Settings.RandomDelay));
+                                                        Keyboard.KeyPress(Keys.Enter);
+                                                        await TaskUtils.NextFrame();
+                                                        await Task.Delay(Settings.ActionDelay + random.Next(Settings.RandomDelay));
+                                                        
+                                                        // Update last reprice time and reset timer
+                                                        if (Settings.EnableTimer)
+                                                        {
+                                                            _lastRepriceTime = DateTime.Now;
+                                                            _timerExpired = false;
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
@@ -227,11 +233,22 @@ namespace LowerPrice
                                 }
                             }
                         }
+
+                        await TaskUtils.NextFrame();
+                        await Task.Delay(Settings.ActionDelay + random.Next(Settings.RandomDelay));
+                    }
+                    catch (Exception ex)
+                    {
+                        // Log error for individual item processing but continue with next item
+                        LogError($"Error processing item: {ex.Message}");
+                        continue;
                     }
                 }
-
-                await TaskUtils.NextFrame();
-                await Task.Delay(Settings.ActionDelay + random.Next(Settings.RandomDelay));
+            }
+            catch (Exception ex)
+            {
+                // Log error for the entire reprice operation
+                LogError($"Error in UpdateAllItemPrices: {ex.Message}");
             }
         }
 
@@ -735,10 +752,18 @@ namespace LowerPrice
 
         private bool FindPriceInAllText(Element element, out string priceText, out string orbType)
         {
+            return FindPriceInAllText(element, out priceText, out orbType, 0);
+        }
+
+        private bool FindPriceInAllText(Element element, out string priceText, out string orbType, int depth)
+        {
             priceText = null;
             orbType = null;
             
-            if (element?.Text != null)
+            // Prevent stack overflow by limiting recursion depth
+            if (depth > 5 || element == null) return false;
+            
+            if (element.Text != null)
             {
                 var text = element.Text.Trim();
                 
@@ -761,11 +786,11 @@ namespace LowerPrice
                 }
             }
             
-            if (element?.Children != null)
+            if (element.Children != null)
             {
                 foreach (var child in element.Children)
                 {
-                    if (FindPriceInAllText(child, out priceText, out orbType))
+                    if (FindPriceInAllText(child, out priceText, out orbType, depth + 1))
                     {
                         return true;
                     }
@@ -777,17 +802,25 @@ namespace LowerPrice
 
         private string GetAllTextFromElement(Element element)
         {
-            if (element?.Text != null)
+            return GetAllTextFromElement(element, 0);
+        }
+
+        private string GetAllTextFromElement(Element element, int depth)
+        {
+            // Prevent stack overflow by limiting recursion depth
+            if (depth > 5 || element == null) return string.Empty;
+            
+            if (element.Text != null)
             {
                 return element.Text;
             }
             
-            if (element?.Children != null)
+            if (element.Children != null)
             {
                 var allText = new System.Text.StringBuilder();
                 foreach (var child in element.Children)
                 {
-                    var childText = GetAllTextFromElement(child);
+                    var childText = GetAllTextFromElement(child, depth + 1);
                     if (!string.IsNullOrEmpty(childText))
                     {
                         if (allText.Length > 0) allText.Append(" ");
@@ -805,8 +838,8 @@ namespace LowerPrice
             priceText = null;
             orbType = null;
             
-            // Prevent stack overflow by limiting recursion depth
-            if (depth > 10 || element?.Children == null) return false;
+            // Prevent stack overflow by limiting recursion depth more aggressively
+            if (depth > 5 || element?.Children == null) return false;
             
             try
             {
@@ -835,8 +868,8 @@ namespace LowerPrice
                                 }
                             }
                             
-                            // If no sibling found, try parent's siblings (but limit depth)
-                            if (depth < 5 && element.Parent?.Children != null)
+                            // If no sibling found, try parent's siblings (but limit depth more strictly)
+                            if (depth < 3 && element.Parent?.Children != null)
                             {
                                 foreach (var parentSibling in element.Parent.Children)
                                 {
