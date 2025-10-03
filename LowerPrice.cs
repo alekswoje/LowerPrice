@@ -81,11 +81,6 @@ namespace LowerPrice
             {
                 RenderValueDisplay();
             }
-            else
-            {
-                // Debug: Show when value display is disabled
-                Graphics.DrawText("Value Display: DISABLED in settings", new Vector2(10, 50));
-            }
 
             var merchantPanel = GameController.IngameState.IngameUi.OfflineMerchantPanel;
             if (merchantPanel != null && merchantPanel.IsVisible)
@@ -262,27 +257,22 @@ namespace LowerPrice
                 case "Divine Orb":
                     // Divine Override: if checked, force flat reduction; if unchecked, use global setting
                     useFlatReduction = Settings.DivineUseFlat ? true : Settings.UseFlatReduction;
-                    LogMessage($"Divine: DivineUseFlat={Settings.DivineUseFlat}, UseFlatReduction={Settings.UseFlatReduction}, Result={useFlatReduction}");
                     break;
                 case "Chaos Orb":
                     // Chaos Override: if checked, force flat reduction; if unchecked, use global setting
                     useFlatReduction = Settings.ChaosUseRatio ? true : Settings.UseFlatReduction;
-                    LogMessage($"Chaos: ChaosUseRatio={Settings.ChaosUseRatio}, UseFlatReduction={Settings.UseFlatReduction}, Result={useFlatReduction}");
                     break;
                 case "Exalted Orb":
                     // Exalted Override: if checked, force flat reduction; if unchecked, use global setting
                     useFlatReduction = Settings.ExaltedUseRatio ? true : Settings.UseFlatReduction;
-                    LogMessage($"Exalted: ExaltedUseRatio={Settings.ExaltedUseRatio}, UseFlatReduction={Settings.UseFlatReduction}, Result={useFlatReduction}");
                     break;
                 case "Orb of Annulment":
                     // Annul Override: if checked, force flat reduction; if unchecked, use global setting
                     useFlatReduction = Settings.AnnulUseFlat ? true : Settings.UseFlatReduction;
-                    LogMessage($"Annul: AnnulUseFlat={Settings.AnnulUseFlat}, UseFlatReduction={Settings.UseFlatReduction}, Result={useFlatReduction}");
                     break;
                 default:
                     // Use global setting for unknown currencies
                     useFlatReduction = Settings.UseFlatReduction;
-                    LogMessage($"Default: UseFlatReduction={Settings.UseFlatReduction}, Result={useFlatReduction}");
                     break;
             }
 
@@ -482,14 +472,12 @@ namespace LowerPrice
                 {
                     var response = await _httpClient.GetStringAsync("https://poe.ninja/poe2/api/economy/temp/overview?leagueName=Rise+of+the+Abyssal&overviewName=Currency");
                     jsonDoc = JsonDocument.Parse(response);
-                    LogMessage("Loaded currency rates from API");
                 }
                 catch
                 {
                     // Fallback to local poeninja.json file
                     var localJson = await File.ReadAllTextAsync("poeninja.json");
                     jsonDoc = JsonDocument.Parse(localJson);
-                    LogMessage("Loaded currency rates from local poeninja.json file");
                 }
                 
                 lock (_currencyRatesLock)
@@ -520,7 +508,6 @@ namespace LowerPrice
                 }
                 
                 _lastCurrencyUpdate = DateTime.Now;
-                LogMessage("Currency rates updated successfully");
             }
             catch (Exception ex)
             {
@@ -542,14 +529,11 @@ namespace LowerPrice
             var inventory = merchantPanel.AllInventories?.FirstOrDefault();
             if (inventory?.VisibleInventoryItems == null) 
             {
-                // Debug: Show when no inventory items
-                Graphics.DrawText("Value Display: No inventory items", new Vector2(10, 10));
                 return;
             }
 
             var itemValues = CalculateItemValues(inventory.VisibleInventoryItems);
             
-            // Debug: Always show something, even if no items
             var pos = new Vector2(Settings.ValueDisplayX.Value, Settings.ValueDisplayY.Value);
             
             // Create value display text
